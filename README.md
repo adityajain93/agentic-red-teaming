@@ -60,7 +60,7 @@ The **orchestrator** coordinates the campaign. Each **attacker** specializes in 
 
 ## Models
 
-All components use the **OpenAI API**.
+By default, all components use the **OpenAI API**.
 
 | Component | Model | Purpose |
 |---|---|---|
@@ -70,6 +70,9 @@ All components use the **OpenAI API**.
 
 If you're not sure where to start, use `gpt-5.5`, our flagship model for complex reasoning and coding. If you're optimizing for latency and cost, choose a smaller variant like `gpt-5.4-mini` or `gpt-5.4-nano`.
 
+You can also serve an open-source model on Modal through a vLLM
+OpenAI-compatible endpoint. See [Serving open-source models with Modal](#serving-open-source-models-with-modal).
+
 ---
 
 ## Repo structure
@@ -78,6 +81,8 @@ If you're not sure where to start, use `gpt-5.5`, our flagship model for complex
 agentic-red-teaming/
 ├── main.py                        # Entry point
 ├── display.py                     # Rich live terminal display
+├── modal_vllm.py                  # Modal/vLLM OpenAI-compatible model server
+├── .env.example                   # Environment variables for local and Modal runs
 ├── pyproject.toml
 │
 ├── target/
@@ -123,8 +128,17 @@ python3 -m venv .venv
 source .venv/bin/activate
 
 # Install dependencies
-pip install "openai-agents[modal]" modal anthropic rich raindrop-ai
+pip install openai "openai-agents[modal]" "modal>=1.0.0" anthropic python-dotenv rich raindrop-ai
 ```
+
+Copy the config template and fill in the secrets you need:
+
+```bash
+cp .env.example .env
+```
+
+`modal_vllm.py` loads `.env` automatically. For `main.py`, export the needed
+values in your shell before running the campaign.
 
 ---
 
@@ -182,6 +196,193 @@ PYTHONPATH=. python main.py --rounds 1
 ```bash
 PYTHONPATH=. python main.py --rounds 5
 ```
+
+## Serving open-source models with Modal
+
+The repo includes `modal_vllm.py`, which deploys a vLLM server on Modal and exposes
+an OpenAI-compatible chat API. The default model is
+`Qwen/Qwen3.5-9B`, served as model name `qwen3.5-9b` on an `L40S` GPU.
+
+Think of this as a serving layer, not an attack strategy or a built-in target.
+It gives the repo a managed GPU endpoint with a standard
+`/v1/chat/completions` interface. External OpenAI-compatible clients can call
+the endpoint, but the red-team harness still attacks the local SecureBank target
+unless you add a separate target adapter later.
+
+Serving contract:
+
+```text
+POST https://...modal.run/v1/chat/completions
+Authorization: Bearer $MODAL_VLLM_API_KEY
+model: $MODAL_SERVED_MODEL_NAME
+```
+
+### What you need
+
+You need a few things outside the repo:
+
+1. A Modal account and local Modal auth:
+
+```bash
+modal setup
+```
+
+2. An OpenAI API key if you also want to run the local red-team harness:
+
+```bash
+export OPENAI_API_KEY=sk-...
+```
+
+3. A Hugging Face token only if the model is gated or private. Create a Modal
+secret named `hf-token` with:
+
+```bash
+modal secret create hf-token HF_TOKEN=hf_...
+export MODAL_HF_SECRET_NAME=hf-token
+```
+
+4. Modal proxy auth tokens for the deployed web endpoint. Modal web endpoints are
+reachable from the Internet when deployed, so `modal_vllm.py` defaults to proxy
+authentication:
+
+```bash
+export MODAL_PROXY_TOKEN_ID=wk-...
+export MODAL_PROXY_TOKEN_SECRET=ws-...
+```
+
+If you do not want to use Modal proxy auth yet, use vLLM's built-in OpenAI API
+key check instead:
+
+```bash
+export MODAL_REQUIRE_PROXY_AUTH=0
+export MODAL_VLLM_API_KEY=$(openssl rand -hex 24)
+```
+
+### Launch and test the endpoint
+
+For a first launch, run the Modal smoke test:
+
+```bash
+modal run modal_vllm.py
+```
+
+This starts vLLM on Modal, prints the endpoint URL, and sends a tiny chat request
+when proxy auth env vars are set.
+
+Deploy the persistent endpoint:
+
+```bash
+modal deploy modal_vllm.py
+```
+
+The deploy command prints a URL like:
+
+```text
+https://your-workspace--agentic-red-team-vllm-serve.modal.run
+```
+
+Call the deployed endpoint from any OpenAI-compatible client:
+
+```bash
+python - <<'PY'
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="https://your-workspace--agentic-red-team-vllm-serve.modal.run/v1",
+    api_key="replace-with-your-vllm-api-key",
+)
+
+response = client.chat.completions.create(
+    model="qwen3.5-9b",
+    messages=[{"role": "user", "content": "Reply with READY."}],
+    max_tokens=32,
+)
+print(response.choices[0].message.content)
+PY
+```
+
+### Model and GPU selection
+
+The deployed model is configurable without editing code. Change the
+serving-side variables in `.env`, then redeploy `modal_vllm.py`.
+
+Minimum model config:
+
+```bash
+MODAL_MODEL_NAME=Qwen/Qwen3.5-9B
+MODAL_SERVED_MODEL_NAME=qwen3.5-9b
+MODAL_GPU=L40S
+MODAL_MAX_MODEL_LEN=4096
+```
+
+`MODAL_MODEL_NAME` is the Hugging Face repo that vLLM downloads and serves.
+`MODAL_SERVED_MODEL_NAME` is the OpenAI-compatible model id clients send in
+chat requests.
+
+Example `.env` swap:
+
+```bash
+MODAL_MODEL_NAME=mistralai/Mistral-7B-Instruct-v0.3
+MODAL_SERVED_MODEL_NAME=mistral-7b
+MODAL_GPU=A10G
+MODAL_MAX_MODEL_LEN=4096
+```
+
+Then redeploy:
+
+```bash
+modal deploy modal_vllm.py
+```
+
+You can also override the model for one deploy from the shell:
+
+```bash
+MODAL_MODEL_NAME=mistralai/Mistral-7B-Instruct-v0.3 \
+MODAL_SERVED_MODEL_NAME=mistral-7b \
+MODAL_GPU=A10G \
+MODAL_MAX_MODEL_LEN=4096 \
+modal deploy modal_vllm.py
+```
+
+Larger models usually need more GPU memory or tensor parallelism:
+
+```bash
+MODAL_MODEL_NAME=Qwen/Qwen2.5-14B-Instruct \
+MODAL_GPU=H100 \
+MODAL_MAX_MODEL_LEN=4096 \
+modal deploy modal_vllm.py
+```
+
+```bash
+MODAL_MODEL_NAME=meta-llama/Llama-3.1-70B-Instruct \
+MODAL_GPU=H100:2 \
+MODAL_TENSOR_PARALLEL_SIZE=2 \
+MODAL_MAX_MODEL_LEN=8192 \
+MODAL_HF_SECRET_NAME=hf-token \
+modal deploy modal_vllm.py
+```
+
+Useful options:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `MODAL_APP_NAME` | `agentic-red-team-vllm` | Modal app name; change to deploy separate endpoints |
+| `MODAL_MODEL_NAME` | `Qwen/Qwen3.5-9B` | Hugging Face model repo |
+| `MODAL_MODEL_REVISION` | none | Optional Hugging Face revision, branch, or commit |
+| `MODAL_SERVED_MODEL_NAME` | `qwen3.5-9b` | Name used in OpenAI requests |
+| `MODAL_GPU` | `L40S` | Modal GPU spec, e.g. `A10G`, `H100`, `H100:2` |
+| `MODAL_TENSOR_PARALLEL_SIZE` | parsed from `MODAL_GPU` | vLLM tensor parallel count |
+| `MODAL_MAX_MODEL_LEN` | `4096` | Context length cap |
+| `MODAL_DTYPE` | `auto` | vLLM dtype |
+| `MODAL_QUANTIZATION` | none | Optional vLLM quantization mode |
+| `MODAL_TRUST_REMOTE_CODE` | `0` | Set `1` only for models that require remote code |
+| `MODAL_VLLM_API_KEY` | none | Optional API key enforced by vLLM |
+| `MODAL_EXTRA_VLLM_ARGS` | none | Extra args passed to `vllm serve` |
+| `MODAL_REQUIRE_PROXY_AUTH` | `1` | Set `0` to make the endpoint public |
+
+For quick experiments you can disable Modal proxy auth with
+`MODAL_REQUIRE_PROXY_AUTH=0`, but pair it with `MODAL_VLLM_API_KEY` so the
+OpenAI-compatible API still requires a bearer token.
 
 ---
 
