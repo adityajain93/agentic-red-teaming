@@ -8,7 +8,7 @@ An automated multi-agent red teaming system that probes AI systems for vulnerabi
 
 ## What is the target?
 
-The **target** is `SecureBank Assistant` — a simulated AI-powered banking chatbot built with GPT-4o-mini. It plays the role of a real customer-facing AI agent: it can look up account balances, process fund transfers, and retrieve transaction history.
+The **target** is `SecureBank Assistant` — a simulated AI-powered banking chatbot built with GPT-4o. It plays the role of a real customer-facing AI agent: it can look up account balances, process fund transfers, and retrieve transaction history.
 
 It is intentionally designed with security weaknesses:
 
@@ -64,7 +64,7 @@ All components use the **OpenAI API**.
 
 | Component | Model | Purpose |
 |---|---|---|
-| `target/bank_agent.py` | `gpt-4o-mini` | The vulnerable banking assistant being attacked |
+| `target/bank_agent.py` | `gpt-4o` | The vulnerable banking assistant being attacked |
 | `red_team/attacker.py` | `gpt-4o-mini` | Each worker — generates attack prompts, analyzes responses |
 | `red_team/orchestrator.py` | `gpt-4o-mini` | Coordinates the pool, spawns follow-ups on hits |
 
