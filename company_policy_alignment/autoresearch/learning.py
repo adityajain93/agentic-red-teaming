@@ -13,6 +13,10 @@ from typing import Any
 LEARNING_BLOCK_START = "<!-- company_policy_alignment_learning:v1"
 LEARNING_BLOCK_END = "-->"
 DEFAULT_LEARNINGS_ROOT = Path(__file__).resolve().parents[1] / "learnings"
+DEFAULT_FLEET_MEMORY = """# Fleet Learning Memory
+
+No fleet-learning reports have been processed yet.
+"""
 
 
 @dataclass(frozen=True)
@@ -235,6 +239,27 @@ class FleetLearningStore:
         if not self.manifest_path.exists():
             return {"version": 1, "processed_files": {}, "updates": []}
         return json.loads(self.manifest_path.read_text(encoding="utf-8"))
+
+    def read_fleet_context(self) -> dict[str, Any]:
+        """Return the memory that attacker agents may read before exploring.
+
+        This intentionally exposes only aggregate fleet memory and the structured
+        strategy library. It does not expose inbox reports, processed reports, or
+        benchmark rows.
+        """
+        self.ensure_directories()
+        memory = (
+            self.fleet_memory_path.read_text(encoding="utf-8")
+            if self.fleet_memory_path.exists()
+            else DEFAULT_FLEET_MEMORY
+        )
+        library = self._load_strategy_library()
+        return {
+            "fleet_memory": memory,
+            "strategy_library": library,
+            "memory_path": str(self.fleet_memory_path),
+            "strategy_library_path": str(self.strategy_library_path),
+        }
 
     def unprocessed_files(self) -> list[Path]:
         manifest = self.load_manifest()

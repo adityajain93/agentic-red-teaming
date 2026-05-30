@@ -14,6 +14,8 @@ outside the target prompt.
   users that try to elicit denylist behavior.
 - `strategy_research_and_delegation.md` - use web research and Codex
   SDK/subagents to improve attacker strategy construction.
+- `use_attack_harness.md` - implement generated attackers against the shared
+  episode harness instead of reimplementing target/evaluator plumbing.
 
 ## Intended Autoresearch Flow
 

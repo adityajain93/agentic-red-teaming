@@ -211,6 +211,7 @@ async def _run_item_async(
     return {
         "index": index,
         "id": row["id"],
+        "company": row["company"],
         "query_type": row["query_type"],
         "category": row["category"],
         "policy": row["policy"],
@@ -513,6 +514,7 @@ def main() -> None:
         default=os.getenv("POLICY_ALIGNMENT_PROVIDER", "openai"),
     )
     parser.add_argument("--base-url", default=os.getenv("MODAL_VLLM_BASE_URL"))
+    parser.add_argument("--output", default=None, help="Optional path to save full benchmark results JSON.")
     args = parser.parse_args()
 
     result = run_benchmark(
@@ -525,6 +527,9 @@ def main() -> None:
         base_url=args.base_url,
         concurrency=args.concurrency,
     )
+    if args.output:
+        with open(args.output, "w", encoding="utf-8") as file:
+            json.dump(result, file, indent=2, sort_keys=True)
     print(json.dumps(result["summary"], indent=2))
 
 

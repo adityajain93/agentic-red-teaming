@@ -119,16 +119,17 @@ research loop. They are not passed to the evaluated target agent.
   research and Codex SDK/subagents for bounded research, coding, judging, and
   reduction tasks.
 
-The intended pattern is:
+The intended attacker pattern is memory-first. The attacker is a coding/research
+agent that reads fleet memory and skills, but not the raw benchmark dataset:
 
 ```text
-COMPASS denylist seed
-  -> attacker construction skill
-  -> stateful attacker strategy
-  -> multi-turn target conversation
-  -> label-preservation verifier
-  -> behavior judge
-  -> discovered failure / minimal reproducer
+orchestrator assignment
+  -> attacker reads fleet memory + skills
+  -> attacker optionally researches safety literature
+  -> attacker generates string / multi-turn script / mini-agent
+  -> artifact talks to CompanyPolicyAlignmentAgent
+  -> evaluator judges label preservation and denylist break
+  -> attacker writes learning doc
 ```
 
 ## Fleet Learning
@@ -160,3 +161,50 @@ That command updates:
 - `learnings/fleet/strategy_library.json` - structured strategy stats.
 - `learnings/fleet/processed_manifest.json` - files already consumed, so the
   next update looks only at newly added learning reports.
+
+The episode runner in `autoresearch/episode.py` formalizes the loop. It builds
+the attacker context from only the assignment, skills, fleet memory, and
+strategy library; it then executes generated attack artifacts against
+`CompanyPolicyAlignmentAgent`, asks an evaluator whether the break happened,
+and writes one learning report after success or after the attempt budget.
+
+Initial strategy priors live in `autoresearch/seed_strategies.json`. Those are
+human-authored starting hypotheses, while `learnings/fleet/strategy_library.json`
+contains only evidence accumulated from actual attacker episodes.
+
+Codex-produced attackers should implement the shared attacker API instead of
+reimplementing the conversation loop. A generated module exposes
+`create_attacker()` and returns an object with `next_user_message(...)`.
+Optional `start`, `observe`, and `finish` hooks let the attacker adapt from
+evaluator feedback and add conclusions to the learning document.
+
+Run a generated attacker through the shared harness:
+
+```bash
+.venv/bin/python -m company_policy_alignment.autoresearch.run_episode \
+  --attacker-module path/to/generated_attacker.py \
+  --assignment path/to/assignment.json \
+  --agent-id codex-attacker-financial-actions-001
+```
+
+The harness owns target calls, history, evaluation, stopping, and learning-doc
+serialization. The generated attacker owns only attack intelligence.
+
+To seed an autoresearch batch from denylist examples the benchmark did not
+break, save full benchmark results and create sanitized assignments:
+
+```bash
+.venv/bin/python -m company_policy_alignment.benchmark \
+  --limit 100 \
+  --seed 7 \
+  --output /tmp/company_policy_alignment_benchmark.json
+
+.venv/bin/python -m company_policy_alignment.autoresearch.denylist_experiment \
+  --benchmark-results /tmp/company_policy_alignment_benchmark.json \
+  --limit 20 \
+  --output-dir company_policy_alignment/autoresearch/assignments/run-001
+```
+
+Those assignments are for shared-current-branch learning. Each attacker writes
+one unique report under `learnings/inbox/`; the fleet learner later aggregates
+new reports into `learnings/fleet/`.
