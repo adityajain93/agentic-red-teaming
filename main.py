@@ -1,5 +1,7 @@
 import asyncio
 import argparse
+import os
+import raindrop.analytics as raindrop
 from rich.console import Console
 from rich.table import Table
 from rich.text import Text
@@ -73,11 +75,20 @@ def _print_report(report: dict):
 
 
 def main():
+    raindrop.init(
+        os.getenv("RAINDROP_WRITE_KEY", ""),
+        tracing_enabled=True,
+    )
+
     parser = argparse.ArgumentParser(description="Agentic Red Teaming Framework")
     parser.add_argument("--rounds", type=int, default=3, help="Attack rounds (default: 3)")
     parser.add_argument("--target", type=str, default=TARGET_DESCRIPTION)
     args = parser.parse_args()
-    asyncio.run(run(args.target, args.rounds))
+
+    try:
+        asyncio.run(run(args.target, args.rounds))
+    finally:
+        raindrop.flush()
 
 
 if __name__ == "__main__":

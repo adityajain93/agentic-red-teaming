@@ -1,5 +1,6 @@
 import asyncio
 import os
+import raindrop.analytics as raindrop
 from openai import OpenAI
 
 from .attacker import AttackResult
@@ -36,6 +37,7 @@ class OrchestratorAgent:
                 self.loaded_skills.append(name)
         return skills
 
+    @raindrop.interaction()
     async def run_campaign(self, num_rounds: int = 3) -> dict:
         self.status = "loading skills"
         skills = self._load_skills()

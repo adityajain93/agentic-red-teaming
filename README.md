@@ -112,7 +112,7 @@ The `BankAgent` has four deliberate weaknesses for red teamers to find:
 
 ## Setup
 
-**Requirements:** Python 3.11+, an OpenAI API key.
+**Requirements:** Python 3.11+, an OpenAI API key, and a Raindrop write key from [app.raindrop.ai](https://app.raindrop.ai).
 
 ```bash
 # Clone and enter the repo
@@ -123,7 +123,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 
 # Install dependencies
-pip install "openai-agents[modal]" modal anthropic rich
+pip install "openai-agents[modal]" modal anthropic rich raindrop-ai
 ```
 
 ---
@@ -132,9 +132,12 @@ pip install "openai-agents[modal]" modal anthropic rich
 
 ```bash
 export OPENAI_API_KEY=sk-...
+export RAINDROP_WRITE_KEY=your-write-key   # from app.raindrop.ai
 
 PYTHONPATH=. python main.py --rounds 3
 ```
+
+Traces will appear live in [app.raindrop.ai](https://app.raindrop.ai) — every attacker's tool calls, model calls, inputs, outputs, and timing across the full campaign.
 
 **Options:**
 
