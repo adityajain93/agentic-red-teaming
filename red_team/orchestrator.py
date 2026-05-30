@@ -1,6 +1,5 @@
 import asyncio
 import os
-from openai import OpenAI
 
 from .attacker import AttackResult
 from .attacker_pool import AttackerPool
@@ -16,8 +15,8 @@ class OrchestratorAgent:
 
     def __init__(self, target_description: str):
         self.target_description = target_description
-        self.client = OpenAI()
-        self.model = "gpt-5.5"
+        from target.modal_client import modal_vllm_client
+        self.client, self.model = modal_vllm_client(role="attacker")
         self.pool = AttackerPool()
         self.all_results: list[AttackResult] = []
         self.status = "initializing"

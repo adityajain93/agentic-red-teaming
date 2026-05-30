@@ -71,9 +71,13 @@ vllm_image = (
 
 hf_cache_vol = modal.Volume.from_name("agentic-red-team-hf-cache", create_if_missing=True)
 vllm_cache_vol = modal.Volume.from_name("agentic-red-team-vllm-cache", create_if_missing=True)
-secrets = [modal.Secret.from_name(HF_SECRET_NAME)] if HF_SECRET_NAME else []
-if VLLM_API_KEY:
-    secrets.append(modal.Secret.from_dict({"MODAL_VLLM_API_KEY": VLLM_API_KEY}))
+# Always include both secrets so the dep count is stable regardless of env vars.
+# modal.Secret.from_name will fail at deploy time if the secret doesn't exist —
+# create it with: modal secret create hf-token HF_TOKEN=...
+secrets = [
+    modal.Secret.from_name("hf-token"),
+    modal.Secret.from_dict({"MODAL_VLLM_API_KEY": VLLM_API_KEY or ""}),
+]
 
 app = modal.App(APP_NAME)
 
