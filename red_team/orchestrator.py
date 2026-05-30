@@ -17,7 +17,7 @@ class OrchestratorAgent:
     def __init__(self, target_description: str):
         self.target_description = target_description
         self.client = OpenAI()
-        self.model = "gpt-4o-mini"
+        self.model = "gpt-5.5"
         self.pool = AttackerPool()
         self.all_results: list[AttackResult] = []
         self.status = "initializing"

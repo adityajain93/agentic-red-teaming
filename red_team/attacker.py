@@ -24,7 +24,7 @@ class AttackerAgent:
         self.attack_type = attack_type
         self.skill_content = skill_content
         self.client = OpenAI()
-        self.model = "gpt-4o-mini"
+        self.model = "gpt-5.5"
         self.results: list[AttackResult] = []
         self.status = "idle"
         self.turns = 0

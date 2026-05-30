@@ -136,7 +136,7 @@ class BankAgent:
 
     def __init__(self):
         self.client = OpenAI()
-        self.model = "gpt-4o"
+        self.model = "gpt-5.5"
 
     def chat(self, user_message: str, history: list[dict] | None = None) -> dict:
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]

@@ -64,9 +64,9 @@ All components use the **OpenAI API**.
 
 | Component | Model | Purpose |
 |---|---|---|
-| `target/bank_agent.py` | `gpt-4o` | The vulnerable banking assistant being attacked |
-| `red_team/attacker.py` | `gpt-4o-mini` | Each worker — generates attack prompts, analyzes responses |
-| `red_team/orchestrator.py` | `gpt-4o-mini` | Coordinates the pool, spawns follow-ups on hits |
+| `target/bank_agent.py` | `gpt-5.5` | The vulnerable banking assistant being attacked |
+| `red_team/attacker.py` | `gpt-5.5` | Each worker — generates attack prompts, analyzes responses |
+| `red_team/orchestrator.py` | `gpt-5.5` | Coordinates the pool, spawns follow-ups on hits |
 
 If you're not sure where to start, use `gpt-5.5`, our flagship model for complex reasoning and coding. If you're optimizing for latency and cost, choose a smaller variant like `gpt-5.4-mini` or `gpt-5.4-nano`.
 
