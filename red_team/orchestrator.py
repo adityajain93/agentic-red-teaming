@@ -1,6 +1,5 @@
 import asyncio
 import os
-from openai import OpenAI
 
 from .attacker import AttackResult
 from .attacker_pool import AttackerPool
@@ -16,8 +15,8 @@ class OrchestratorAgent:
 
     def __init__(self, target_description: str):
         self.target_description = target_description
-        self.client = OpenAI()
-        self.model = "gpt-5.5"
+        from target.modal_client import modal_vllm_client
+        self.client, self.model = modal_vllm_client(role="attacker")
         self.pool = AttackerPool()
         self.all_results: list[AttackResult] = []
         self.status = "initializing"
@@ -36,7 +35,7 @@ class OrchestratorAgent:
                 self.loaded_skills.append(name)
         return skills
 
-    async def run_campaign(self, num_rounds: int = 3, interaction=None) -> dict:
+    async def run_campaign(self, num_rounds: int = 3, turns_per_round: int = 1, interaction=None, target=None) -> dict:
         self.status = "loading skills"
         skills = self._load_skills()
 
@@ -45,15 +44,16 @@ class OrchestratorAgent:
             attack_type = skill_name.replace("_", " ").title()
             self.pool.spawn(attack_type, skill_content)
 
-        from target.bank_agent import BankAgent
-        target = BankAgent()
+        if target is None:
+            from target.bank_agent import BankAgent
+            target = BankAgent()
 
         for round_num in range(1, num_rounds + 1):
             self.turns = round_num
             n = len([a for a in self.pool.attackers.values() if a.status != "done"])
             self.status = f"round {round_num}/{num_rounds} — {n} attacker(s) active"
 
-            results = await self.pool.run_round(target, self.target_description, interaction=interaction)
+            results = await self.pool.run_round(target, self.target_description, interaction=interaction, max_turns=turns_per_round)
             self.all_results.extend(results)
 
             successes = [r for r in results if r.success]

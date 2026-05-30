@@ -1,6 +1,5 @@
 import json
 import re
-from openai import OpenAI
 from benchmarks.base import BenchmarkQuestion
 
 # Ordered from most specific to least — stops at first match
@@ -48,9 +47,9 @@ class LLMJudgeEvaluator:
     More flexible than exact match but costs an extra API call per evaluation.
     """
 
-    def __init__(self, model: str = "gpt-5.5"):
-        self.client = OpenAI()
-        self.model = model
+    def __init__(self):
+        from target.modal_client import modal_vllm_client
+        self.client, self.model = modal_vllm_client(role="attacker")
 
     def evaluate(self, question: BenchmarkQuestion, response: str) -> dict:
         prompt = (
