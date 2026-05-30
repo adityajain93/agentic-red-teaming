@@ -5,6 +5,9 @@ import os
 import time
 from datetime import datetime
 
+from dotenv import load_dotenv
+load_dotenv()
+
 import raindrop.analytics as raindrop
 from rich.console import Console
 from rich.table import Table
@@ -513,6 +516,89 @@ async def run_benchmark(args) -> None:
         raise
 
 
+async def run_simulate(args) -> None:
+    from simulation.orchestrator import SimulationOrchestrator, SIMULATION_STRATEGIES
+
+    target = AGENTS[args.agent]["factory"]()
+    orchestrator = SimulationOrchestrator()
+
+    console.rule("[bold magenta]Safety Simulation[/bold magenta]")
+    console.print(f"Agent:      [bold]{args.agent}[/bold]")
+    console.print(f"Scenario:   {args.scenario}")
+    console.print(f"Goal:       {args.goal}")
+    console.print(f"Strategies: {len(SIMULATION_STRATEGIES)} | Turns: {args.turns}\n")
+
+    interaction = raindrop.begin(
+        user_id="system",
+        event="safety_simulation",
+        input=args.scenario,
+        properties={
+            "agent": args.agent,
+            "goal": args.goal,
+            "turns": args.turns,
+            "strategies": len(SIMULATION_STRATEGIES),
+        },
+    )
+
+    try:
+        report = await orchestrator.run_campaign(
+            scenario=args.scenario,
+            goal=args.goal,
+            turns=args.turns,
+            target=target,
+            interaction=interaction,
+        )
+        interaction.finish(
+            output=(
+                f"{report['strategies_with_concerns']}/{report['total_strategies']} strategies found concerns "
+                f"({report['critical_concerns']} critical, {report['high_concerns']} high)"
+            )
+        )
+    except Exception as exc:
+        interaction.finish(output=f"Error: {exc}")
+        raise
+
+    _print_simulation_report(report)
+
+
+def _print_simulation_report(report: dict) -> None:
+    _sev_style = {"critical": "bold red", "high": "red", "medium": "yellow", "low": "dim"}
+
+    console.rule("[bold magenta]Simulation Report[/bold magenta]")
+    console.print(f"Strategies run:          {report['total_strategies']}")
+    console.print(f"Strategies with concerns:{report['strategies_with_concerns']}")
+    console.print(f"Model escalated in:      {report['strategies_escalated']}/{report['total_strategies']} strategies")
+    console.print(f"Total concerns:          {report['total_concerns']} "
+                  f"([red]{report['critical_concerns']} critical[/red], "
+                  f"[yellow]{report['high_concerns']} high[/yellow])\n")
+
+    for finding in report["findings"]:
+        if not finding["concerns"]:
+            continue
+
+        escalated_str = "[green]✓ escalated[/green]" if finding["escalated"] else "[red]✗ no escalation[/red]"
+        console.print(f"[bold]{finding['strategy']}[/bold] — {finding['turns']} turns — {escalated_str}")
+
+        table = Table(show_header=True, header_style="bold", box=None, padding=(0, 2))
+        table.add_column("Turn", justify="right", width=5)
+        table.add_column("Severity", width=10)
+        table.add_column("Type", width=22)
+        table.add_column("Description")
+        for c in finding["concerns"]:
+            style = _sev_style.get(c["severity"], "white")
+            table.add_row(
+                str(c["turn"]),
+                Text(c["severity"].upper(), style=style),
+                c["type"],
+                c["description"],
+            )
+        console.print(table)
+        console.print()
+
+    if report["critical_concerns"] == 0 and report["high_concerns"] == 0:
+        console.print("[green]No critical or high-severity concerns found.[/green]")
+
+
 async def run_redteam(args) -> None:
     from red_team.orchestrator import OrchestratorAgent
     from display import RedTeamDisplay
@@ -584,6 +670,10 @@ def main() -> None:
     )
     parser.add_argument("input", nargs="?", help="Single prompt to send to the target (enables single-input mode)")
     parser.add_argument("--adversarial", action="store_true", help="Run all jailbreak strategies against the input prompt and compare to baseline")
+    # simulation mode
+    parser.add_argument("--simulate", action="store_true", help="Run safety simulation — realistic child conversations to surface harmful model behaviour")
+    parser.add_argument("--scenario", type=str, default=None, help="Who the child is and what they are going through (required with --simulate)")
+    parser.add_argument("--goal", type=str, default=None, help="What failure mode to look for (required with --simulate)")
     parser.add_argument(
         "--agent",
         default=_DEFAULT_AGENT,
@@ -607,7 +697,11 @@ def main() -> None:
     args = parser.parse_args()
 
     try:
-        if args.input and args.adversarial:
+        if args.simulate:
+            if not args.scenario or not args.goal:
+                parser.error("--simulate requires both --scenario and --goal")
+            asyncio.run(run_simulate(args))
+        elif args.input and args.adversarial:
             asyncio.run(run_single_adversarial(args))
         elif args.input:
             asyncio.run(run_single(args))
