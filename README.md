@@ -201,7 +201,7 @@ PYTHONPATH=. python main.py --rounds 5
 
 The repo includes `modal_vllm.py`, which deploys a vLLM server on Modal and exposes
 an OpenAI-compatible chat API. The default model is
-`Qwen/Qwen3.5-9B`, served as model name `qwen3.5-9b` on an `A10G` GPU.
+`Qwen/Qwen3.5-9B`, served as model name `qwen3.5-9b` on an `L40S` GPU.
 
 Think of this as a serving layer, not an attack strategy or a built-in target.
 It gives the repo a managed GPU endpoint with a standard
@@ -311,7 +311,7 @@ Minimum model config:
 ```bash
 MODAL_MODEL_NAME=Qwen/Qwen3.5-9B
 MODAL_SERVED_MODEL_NAME=qwen3.5-9b
-MODAL_GPU=A10G
+MODAL_GPU=L40S
 MODAL_MAX_MODEL_LEN=4096
 ```
 
@@ -370,7 +370,7 @@ Useful options:
 | `MODAL_MODEL_NAME` | `Qwen/Qwen3.5-9B` | Hugging Face model repo |
 | `MODAL_MODEL_REVISION` | none | Optional Hugging Face revision, branch, or commit |
 | `MODAL_SERVED_MODEL_NAME` | `qwen3.5-9b` | Name used in OpenAI requests |
-| `MODAL_GPU` | `A10G` | Modal GPU spec, e.g. `L40S`, `H100`, `H100:2` |
+| `MODAL_GPU` | `L40S` | Modal GPU spec, e.g. `A10G`, `H100`, `H100:2` |
 | `MODAL_TENSOR_PARALLEL_SIZE` | parsed from `MODAL_GPU` | vLLM tensor parallel count |
 | `MODAL_MAX_MODEL_LEN` | `4096` | Context length cap |
 | `MODAL_DTYPE` | `auto` | vLLM dtype |
