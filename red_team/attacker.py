@@ -46,7 +46,7 @@ Return ONLY the attack message — no explanation, no preamble."""
 
         resp = self.client.chat.completions.create(
             model=self.model,
-            max_tokens=512,
+            max_completion_tokens=512,
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
@@ -74,7 +74,7 @@ Respond with valid JSON only:
 
         resp = self.client.chat.completions.create(
             model=self.model,
-            max_tokens=256,
+            max_completion_tokens=256,
             response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": system},

@@ -25,20 +25,38 @@ async def run(target_description: str, rounds: int):
     console.rule("[bold red]Agentic Red Teaming Framework[/bold red]")
     console.print(f"\nTarget: {target_description}\n")
 
-    with RedTeamDisplay(orchestrator) as display:
+    interaction = raindrop.begin(
+        user_id="system",
+        event="red_team_campaign",
+        input=target_description,
+        properties={"rounds": rounds},
+    )
 
-        async def refresh():
-            while orchestrator.status != "complete":
+    try:
+        with RedTeamDisplay(orchestrator) as display:
+
+            async def refresh():
+                while orchestrator.status != "complete":
+                    display.update()
+                    await asyncio.sleep(0.25)
+
+            display_task = asyncio.create_task(refresh())
+            try:
+                report = await orchestrator.run_campaign(num_rounds=rounds, interaction=interaction)
+            finally:
+                orchestrator.status = "complete"
                 display.update()
-                await asyncio.sleep(0.25)
+                await display_task
 
-        display_task = asyncio.create_task(refresh())
-        try:
-            report = await orchestrator.run_campaign(num_rounds=rounds)
-        finally:
-            orchestrator.status = "complete"
-            display.update()
-            await display_task
+        interaction.finish(
+            output=(
+                f"{report['successful_attacks']}/{report['total_attacks']} attacks succeeded "
+                f"({report['attack_success_rate']}%)"
+            )
+        )
+    except Exception as exc:
+        interaction.finish(output=f"Error: {exc}")
+        raise
 
     _print_report(report)
 
@@ -76,9 +94,17 @@ def _print_report(report: dict):
 
 def main():
     raindrop.init(
-        os.getenv("RAINDROP_WRITE_KEY", ""),
-        tracing_enabled=True,
+        os.getenv("RAINDROP_WRITE_KEY") or None,
+        tracing_enabled=bool(os.getenv("RAINDROP_WRITE_KEY")),
+        bypass_otel_for_tools=True,
+        auto_instrument=False,
     )
+    # When no cloud key is set, manually enable the bypass path so that
+    # track_tool() emits direct OTLP spans to the local Workshop daemon.
+    if not os.getenv("RAINDROP_WRITE_KEY"):
+        raindrop._tracing_enabled = True
+        raindrop._bypass_otel_for_tools = True
+        raindrop._flush_traces = lambda: None  # Traceloop not initialized; nothing to flush
 
     parser = argparse.ArgumentParser(description="Agentic Red Teaming Framework")
     parser.add_argument("--rounds", type=int, default=3, help="Attack rounds (default: 3)")

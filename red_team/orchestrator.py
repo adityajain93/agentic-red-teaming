@@ -36,7 +36,7 @@ class OrchestratorAgent:
                 self.loaded_skills.append(name)
         return skills
 
-    async def run_campaign(self, num_rounds: int = 3) -> dict:
+    async def run_campaign(self, num_rounds: int = 3, interaction=None) -> dict:
         self.status = "loading skills"
         skills = self._load_skills()
 
@@ -53,7 +53,7 @@ class OrchestratorAgent:
             n = len([a for a in self.pool.attackers.values() if a.status != "done"])
             self.status = f"round {round_num}/{num_rounds} — {n} attacker(s) active"
 
-            results = await self.pool.run_round(target, self.target_description)
+            results = await self.pool.run_round(target, self.target_description, interaction=interaction)
             self.all_results.extend(results)
 
             successes = [r for r in results if r.success]
