@@ -8,6 +8,7 @@ dependencies = [
     "anthropic>=0.50.0",
     "rich>=13.0.0",
     "raindrop-ai",
+    "pytest",
 ]
 
 [build-system]
