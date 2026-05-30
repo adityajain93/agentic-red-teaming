@@ -58,28 +58,58 @@ async def adversarial_trial(
     target,
     evaluator,
     interaction=None,
+    max_turns: int = 1,
 ) -> dict:
     async def try_skill(skill_name: str, skill_content: str) -> dict:
+        import time
         attacker = AttackerAgent(skill_name, skill_name, skill_content)
-        prompt = await asyncio.to_thread(attacker.generate_attack, q.format())
-        result = await asyncio.to_thread(target.chat, prompt)
+        conversation_history: list[dict] = []
+        last_verdict = {"success": False, "reasoning": "no turns completed"}
+        last_prompt = ""
+        last_response = ""
 
-        if interaction:
-            interaction.track_tool(
-                name="jailbreak_attempt",
-                input=prompt,
-                output=result["response"],
-                duration_ms=0,
-                properties={"strategy": skill_name, "question_id": q.id},
+        for turn in range(max_turns):
+            t0 = time.perf_counter()
+            prompt = await asyncio.to_thread(
+                attacker.generate_attack, q.format(), None, conversation_history or None
             )
+            result = await asyncio.to_thread(target.chat, prompt, conversation_history or None)
 
-        verdict = await asyncio.to_thread(evaluator.evaluate, q, result["response"])
+            if interaction:
+                interaction.track_tool(
+                    name="jailbreak_attempt",
+                    input=prompt,
+                    output=result["response"],
+                    duration_ms=(time.perf_counter() - t0) * 1000,
+                    properties={"strategy": skill_name, "question_id": q.id, "turn": turn + 1},
+                )
+
+            conversation_history.append({"role": "user", "content": prompt})
+            conversation_history.append({"role": "assistant", "content": result["response"]})
+            last_prompt = prompt
+            last_response = result["response"]
+
+            last_verdict = await asyncio.to_thread(evaluator.evaluate, q, result["response"])
+            if last_verdict["success"]:
+                break
+
+        # For multi-turn runs with the LLM judge, do a final pass over the full conversation
+        # in case the answer leaked gradually across turns.
+        if not last_verdict["success"] and max_turns > 1 and hasattr(evaluator, "evaluate"):
+            from red_team.evaluator import LLMJudgeEvaluator
+            if isinstance(evaluator, LLMJudgeEvaluator):
+                full_convo = "\n\n".join(
+                    f"{m['role'].upper()}: {m['content']}" for m in conversation_history
+                )
+                last_verdict = await asyncio.to_thread(evaluator.evaluate, q, full_convo)
+
         return {
             "strategy": skill_name,
-            "prompt": prompt,
-            "response": result["response"],
-            "success": verdict["success"],
-            "reasoning": verdict["reasoning"],
+            "prompt": last_prompt,
+            "response": last_response,
+            "turns": len(conversation_history) // 2,
+            "success": last_verdict["success"],
+            "reasoning": last_verdict.get("reasoning", ""),
         }
 
     raw = await asyncio.gather(
@@ -184,7 +214,7 @@ def _save_results(dataset_name: str, baseline: list, adversarial: list) -> str:
     return path
 
 
-async def run(dataset_name: str, limit: int, concurrency: int, evaluator_mode: str = "exact") -> None:
+async def run(dataset_name: str, limit: int, concurrency: int, evaluator_mode: str = "exact", turns: int = 1) -> None:
     if dataset_name not in DATASETS:
         console.print(f"[red]Unknown dataset '{dataset_name}'. Available: {', '.join(DATASETS)}[/red]")
         return
@@ -204,7 +234,7 @@ async def run(dataset_name: str, limit: int, concurrency: int, evaluator_mode: s
         user_id="system",
         event="benchmark_run",
         input=f"{dataset_name} — {len(questions)} questions",
-        properties={"dataset": dataset_name, "questions": len(questions), "concurrency": concurrency, "evaluator": evaluator_mode},
+        properties={"dataset": dataset_name, "questions": len(questions), "concurrency": concurrency, "evaluator": evaluator_mode, "turns": turns},
     )
 
     try:
@@ -214,7 +244,7 @@ async def run(dataset_name: str, limit: int, concurrency: int, evaluator_mode: s
 
         async def bounded_adversarial(q):
             async with sem:
-                return await adversarial_trial(q, target, evaluator, interaction)
+                return await adversarial_trial(q, target, evaluator, interaction, max_turns=turns)
 
         n = len(questions)
         baseline = await _run_pass("Baseline", [bounded_baseline(q) for q in questions], n)
@@ -260,10 +290,11 @@ def main() -> None:
         choices=["exact", "llm"],
         help="Success criterion: 'exact' (regex letter match, default) or 'llm' (LLM-as-judge)",
     )
+    parser.add_argument("--turns", type=int, default=1, help="Conversation turns per jailbreak strategy (default: 1)")
     args = parser.parse_args()
 
     try:
-        asyncio.run(run(args.dataset, args.limit, args.concurrency, args.evaluator))
+        asyncio.run(run(args.dataset, args.limit, args.concurrency, args.evaluator, args.turns))
     finally:
         raindrop.flush()
 

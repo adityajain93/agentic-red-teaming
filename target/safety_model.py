@@ -13,13 +13,13 @@ class SafetyModel:
         self.client, served_model = modal_vllm_client(role="target")
         self.model = model or served_model
 
-    def chat(self, user_message: str) -> dict:
+    def chat(self, user_message: str, history: list[dict] | None = None) -> dict:
+        messages = [{"role": "system", "content": SAFETY_SYSTEM_PROMPT}]
+        messages += list(history or [])
+        messages.append({"role": "user", "content": user_message})
         resp = self.client.chat.completions.create(
             model=self.model,
-            messages=[
-                {"role": "system", "content": SAFETY_SYSTEM_PROMPT},
-                {"role": "user", "content": user_message},
-            ],
+            messages=messages,
             max_tokens=512,
         )
         return {"response": resp.choices[0].message.content or "", "tool_calls": []}
