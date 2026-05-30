@@ -139,6 +139,33 @@ PYTHONPATH=. python main.py --rounds 3
 
 Traces will appear live in [app.raindrop.ai](https://app.raindrop.ai) — every attacker's tool calls, model calls, inputs, outputs, and timing across the full campaign.
 
+---
+
+## Local debugger (Raindrop Workshop)
+
+Run traces locally in your browser instead of sending them to the cloud.
+
+**1. Install Workshop:**
+```bash
+curl -fsSL https://raindrop.sh/install | bash
+```
+
+**2. Start the local server:**
+```bash
+raindrop
+```
+Opens at `localhost:5899`.
+
+**3. Run with local tracing:**
+```bash
+export OPENAI_API_KEY=sk-...
+export RAINDROP_LOCAL_DEBUGGER=true
+
+PYTHONPATH=. python main.py --rounds 3
+```
+
+Setting `RAINDROP_LOCAL_DEBUGGER=true` tells the Raindrop SDK to mirror all traces to your local Workshop instance instead of the cloud. Every token, tool call, and attacker decision streams into the browser in real time as the campaign runs.
+
 **Options:**
 
 | Flag | Default | Description |
