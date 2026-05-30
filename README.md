@@ -86,8 +86,7 @@ agentic-red-teaming/
 ├── pyproject.toml
 │
 ├── target/
-│   ├── bank_agent.py              # Vulnerable GPT-4o-mini banking assistant
-│   └── open_source_agent.py       # Modal/vLLM OpenAI-compatible target adapter
+│   └── bank_agent.py              # Vulnerable GPT-4o-mini banking assistant
 │
 ├── red_team/
 │   ├── orchestrator.py            # Campaign coordinator
@@ -138,7 +137,8 @@ Copy the config template and fill in the secrets you need:
 cp .env.example .env
 ```
 
-Both `main.py` and `modal_vllm.py` load `.env` automatically.
+`modal_vllm.py` loads `.env` automatically. For `main.py`, export the needed
+values in your shell before running the campaign.
 
 ---
 
@@ -185,13 +185,7 @@ Setting `RAINDROP_LOCAL_DEBUGGER=true` tells the Raindrop SDK to mirror all trac
 | Flag | Default | Description |
 |---|---|---|
 | `--rounds` | `3` | Number of attack rounds |
-| `--target` | Backend-specific description | Override target description for a different system |
-| `--target-backend` | `bank` | Target implementation: `bank` or `open-source` |
-| `--skills` | all skills | Comma-separated skill names, e.g. `jailbreak` |
-| `--oss-base-url` | `$OSS_MODEL_BASE_URL` | Modal/vLLM endpoint URL for `open-source` targets |
-| `--oss-model` | `$OSS_MODEL_NAME` or `llm` | Served model name for `open-source` targets |
-| `--oss-system-prompt` | built-in safety prompt | System prompt for `open-source` targets |
-| `--oss-system-prompt-file` | none | Read open-source target system prompt from a file |
+| `--target` | SecureBank description | Override target description for a different system |
 
 **Quick test (1 round, ~10 seconds):**
 ```bash
@@ -209,23 +203,23 @@ The repo includes `modal_vllm.py`, which deploys a vLLM server on Modal and expo
 an OpenAI-compatible chat API. The default model is
 `Qwen/Qwen2.5-7B-Instruct`, served as model name `llm` on an `A10G` GPU.
 
-Think of this as a serving layer, not an attack strategy. It gives the repo a
-managed GPU endpoint with a standard `/v1/chat/completions` interface. The
-endpoint can be used as a red-team target today, and the same serving contract
-can later be reused by attacker, judge, or batch-evaluation code without changing
-the Modal deployment.
+Think of this as a serving layer, not an attack strategy or a built-in target.
+It gives the repo a managed GPU endpoint with a standard
+`/v1/chat/completions` interface. External OpenAI-compatible clients can call
+the endpoint, but the red-team harness still attacks the local SecureBank target
+unless you add a separate target adapter later.
 
 Serving contract:
 
 ```text
 POST https://...modal.run/v1/chat/completions
-Authorization: Bearer $OSS_MODEL_API_KEY
-model: $OSS_MODEL_NAME
+Authorization: Bearer $MODAL_VLLM_API_KEY
+model: $MODAL_SERVED_MODEL_NAME
 ```
 
 ### What you need
 
-You need four things outside the repo:
+You need a few things outside the repo:
 
 1. A Modal account and local Modal auth:
 
@@ -233,7 +227,7 @@ You need four things outside the repo:
 modal setup
 ```
 
-2. An OpenAI API key for the local attacker and judge agents:
+2. An OpenAI API key if you also want to run the local red-team harness:
 
 ```bash
 export OPENAI_API_KEY=sk-...
@@ -262,7 +256,6 @@ key check instead:
 ```bash
 export MODAL_REQUIRE_PROXY_AUTH=0
 export MODAL_VLLM_API_KEY=$(openssl rand -hex 24)
-export OSS_MODEL_API_KEY=$MODAL_VLLM_API_KEY
 ```
 
 ### Launch and test the endpoint
@@ -288,29 +281,24 @@ The deploy command prints a URL like:
 https://your-workspace--agentic-red-team-vllm-serve.modal.run
 ```
 
-Point this repo's open-source target adapter at the served endpoint and run only
-the jailbreak skill:
+Call the deployed endpoint from any OpenAI-compatible client:
 
 ```bash
-export OSS_MODEL_BASE_URL=https://your-workspace--agentic-red-team-vllm-serve.modal.run
-export OSS_MODEL_NAME=llm
-export OSS_MODEL_API_KEY=$MODAL_VLLM_API_KEY
+python - <<'PY'
+from openai import OpenAI
 
-PYTHONPATH=. python main.py \
-  --target-backend open-source \
-  --skills jailbreak \
-  --rounds 3
-```
+client = OpenAI(
+    base_url="https://your-workspace--agentic-red-team-vllm-serve.modal.run/v1",
+    api_key="replace-with-your-vllm-api-key",
+)
 
-You can also pass the endpoint directly:
-
-```bash
-PYTHONPATH=. python main.py \
-  --target-backend open-source \
-  --oss-base-url https://your-workspace--agentic-red-team-vllm-serve.modal.run \
-  --oss-model llm \
-  --skills jailbreak \
-  --rounds 3
+response = client.chat.completions.create(
+    model="llm",
+    messages=[{"role": "user", "content": "Reply with READY."}],
+    max_tokens=32,
+)
+print(response.choices[0].message.content)
+PY
 ```
 
 ### Model and GPU selection
@@ -329,15 +317,13 @@ MODAL_MAX_MODEL_LEN=4096
 
 `MODAL_MODEL_NAME` is the Hugging Face repo that vLLM downloads and serves.
 `MODAL_SERVED_MODEL_NAME` is the OpenAI-compatible model id clients send in
-chat requests. If you change `MODAL_SERVED_MODEL_NAME`, set `OSS_MODEL_NAME` to
-the same value for local consumers.
+chat requests.
 
 Example `.env` swap:
 
 ```bash
 MODAL_MODEL_NAME=mistralai/Mistral-7B-Instruct-v0.3
 MODAL_SERVED_MODEL_NAME=mistral-7b
-OSS_MODEL_NAME=mistral-7b
 MODAL_GPU=A10G
 MODAL_MAX_MODEL_LEN=4096
 ```

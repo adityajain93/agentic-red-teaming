@@ -148,8 +148,8 @@ async def test(prompt: str = "Reply with READY in one short sentence."):
     print(f"Configured HF model: {MODEL_NAME}")
     print(f"Configured GPU: {GPU}")
     print(f"Modal vLLM URL: {url}")
-    print(f"Set OSS_MODEL_BASE_URL={url}")
-    print(f"Set OSS_MODEL_NAME={SERVED_MODEL_NAME}")
+    print(f"OpenAI-compatible base URL: {url.rstrip('/')}/v1")
+    print(f"Served model name: {SERVED_MODEL_NAME}")
 
     headers = _modal_proxy_headers()
     if REQUIRE_PROXY_AUTH and not headers:
@@ -163,7 +163,7 @@ async def test(prompt: str = "Reply with READY in one short sentence."):
 
     client = OpenAI(
         base_url=f"{url.rstrip('/')}/v1",
-        api_key=os.getenv("OSS_MODEL_API_KEY") or VLLM_API_KEY or "EMPTY",
+        api_key=VLLM_API_KEY or "EMPTY",
         default_headers=headers,
         timeout=120,
     )

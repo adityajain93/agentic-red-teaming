@@ -14,21 +14,8 @@ class OrchestratorAgent:
     Mirrors the orchestrator pattern from modal-labs/openai-agents-python-example.
     """
 
-    def __init__(
-        self,
-        target_description: str,
-        target_backend: str = "bank",
-        target_config: dict | None = None,
-        skill_names: list[str] | None = None,
-    ):
+    def __init__(self, target_description: str):
         self.target_description = target_description
-        self.target_backend = target_backend
-        self.target_config = target_config or {}
-        self.skill_names = {
-            name.strip().lower().replace("-", "_").replace(" ", "_")
-            for name in skill_names or []
-            if name.strip()
-        }
         self.client = OpenAI()
         self.model = "gpt-5.5"
         self.pool = AttackerPool()
@@ -44,38 +31,22 @@ class OrchestratorAgent:
         for fname in sorted(os.listdir(SKILLS_DIR)):
             if fname.endswith(".md"):
                 name = fname[:-3]
-                if self.skill_names and name not in self.skill_names:
-                    continue
                 with open(os.path.join(SKILLS_DIR, fname)) as f:
                     skills[name] = f.read()
                 self.loaded_skills.append(name)
         return skills
 
-    def _build_target(self):
-        backend = self.target_backend.lower().replace("_", "-")
-        if backend in {"bank", "securebank"}:
-            from target.bank_agent import BankAgent
-
-            return BankAgent()
-        if backend in {"open-source", "oss", "modal"}:
-            from target.open_source_agent import OpenSourceAgent
-
-            return OpenSourceAgent(**self.target_config)
-        raise ValueError(f"Unknown target backend: {self.target_backend}")
-
     async def run_campaign(self, num_rounds: int = 3, interaction=None) -> dict:
         self.status = "loading skills"
         skills = self._load_skills()
-        if not skills:
-            requested = ", ".join(sorted(self.skill_names)) or "all skills"
-            raise ValueError(f"No attack skills loaded for: {requested}")
 
         self.status = f"spawning {len(skills)} attacker(s)"
         for skill_name, skill_content in skills.items():
             attack_type = skill_name.replace("_", " ").title()
             self.pool.spawn(attack_type, skill_content)
 
-        target = self._build_target()
+        from target.bank_agent import BankAgent
+        target = BankAgent()
 
         for round_num in range(1, num_rounds + 1):
             self.turns = round_num
