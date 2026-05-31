@@ -569,87 +569,114 @@ async def run_simulate(args) -> None:
 
 
 def _print_simulation_report(report: dict) -> None:
-    _sev_style = {"critical": "bold red", "high": "red", "medium": "yellow", "low": "dim"}
+    from rich.panel import Panel
+    from rich.columns import Columns
+    from rich import box as rich_box
+
+    _sev_style   = {"critical": "bold red", "high": "red", "medium": "yellow", "low": "dim"}
+    _sev_icon    = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "⚪"}
     _score_style = {1: "bold red", 2: "red", 3: "yellow", 4: "green", 5: "bold green"}
-    _vera_labels = {
+    _score_bar   = {1: "██░░░", 2: "████░░░░░░", 3: "██████░░░░", 4: "████████░░", 5: "██████████"}
+    _vera_short  = {
         "detects_risk": "Detects Risk",
         "confirms_risk": "Confirms Risk",
-        "guides_to_human_care": "Guides to Human Care",
-        "supportive_conversation": "Supportive Conversation",
-        "follows_ai_boundaries": "Follows AI Boundaries",
+        "guides_to_human_care": "→ Human Care",
+        "supportive_conversation": "Supportive",
+        "follows_ai_boundaries": "AI Boundaries",
     }
 
-    console.rule("[bold magenta]Simulation Report[/bold magenta]")
-    console.print(f"Strategies run:           {report['total_strategies']}")
-    console.print(f"Strategies with concerns: {report['strategies_with_concerns']}")
-    console.print(f"Model escalated in:       {report['strategies_escalated']}/{report['total_strategies']} strategies")
-    console.print(f"Total concerns:           {report['total_concerns']} "
-                  f"([red]{report['critical_concerns']} critical[/red], "
-                  f"[yellow]{report['high_concerns']} high[/yellow])\n")
+    # ── Overview panel ────────────────────────────────────────────────────────
+    n   = report["total_strategies"]
+    hit = report["strategies_with_concerns"]
+    esc = report["strategies_escalated"]
+    crit = report["critical_concerns"]
+    high = report["high_concerns"]
+    total = report["total_concerns"]
 
+    esc_colour = "green" if esc == n else ("yellow" if esc > 0 else "red")
+    overview = (
+        f"[bold]Strategies:[/bold] {hit}/{n} found concerns\n"
+        f"[bold]Escalated:[/bold]  [{esc_colour}]{esc}/{n} strategies[/{esc_colour}]\n"
+        f"[bold]Concerns:[/bold]   {total} total  "
+        f"[red]{crit} critical[/red]  [yellow]{high} high[/yellow]"
+    )
+    console.print(Panel(overview, title="[bold magenta]Safety Simulation — Results[/bold magenta]",
+                        border_style="magenta", padding=(1, 2)))
+    console.print()
+
+    # ── Per-strategy panels ───────────────────────────────────────────────────
     for finding in report["findings"]:
-        escalated_str = "[green]✓ escalated[/green]" if finding["escalated"] else "[red]✗ no escalation[/red]"
-        safety_score = finding.get("overall_safety_score")
-        score_str = f" | Safety score: {safety_score}/5" if safety_score else ""
-        console.print(f"[bold]{finding['strategy']}[/bold] — {finding['turns']} turns — {escalated_str}{score_str}")
+        has_concerns = bool(finding["concerns"])
+        escalated    = finding["escalated"]
+        score        = finding.get("overall_safety_score")
+        n_turns      = finding["turns"]
 
-        # VERA-MH scores table
+        esc_tag   = "[green]✓ escalated[/green]" if escalated else "[red]✗ no escalation[/red]"
+        score_tag = f"  [dim]safety {score}/5[/dim]" if score else ""
+        border    = "red" if has_concerns else "green"
+        title     = f"[bold]{finding['strategy']}[/bold]  ·  {n_turns} turns  ·  {esc_tag}{score_tag}"
+
+        lines: list[str] = []
+
+        # VERA-MH scores — compact single row
         vera = finding.get("vera_mh", {})
         if vera:
-            vera_table = Table(show_header=False, box=None, padding=(0, 2))
-            vera_table.add_column("Dimension", width=26)
-            vera_table.add_column("Score", width=8)
-            vera_table.add_column("Reasoning")
-            for dim, label in _vera_labels.items():
-                dim_data = vera.get(dim, {})
-                score = dim_data.get("score")
-                reasoning = dim_data.get("reasoning", "")
-                if isinstance(score, int):
-                    style = _score_style.get(score, "white")
-                    vera_table.add_row(f"[dim]{label}[/dim]", Text(f"{score}/5", style=style), f"[dim]{reasoning}[/dim]")
-            console.print(vera_table)
+            score_chips = []
+            for dim, label in _vera_short.items():
+                d = vera.get(dim, {})
+                s = d.get("score")
+                if isinstance(s, int):
+                    st = _score_style.get(s, "white")
+                    score_chips.append(f"[{st}]{label}: {s}/5[/{st}]")
+            lines.append("  ".join(score_chips))
+            lines.append("")
 
-        if finding["concerns"]:
-            # Concern table
-            concern_table = Table(show_header=True, header_style="bold", box=None, padding=(0, 2))
-            concern_table.add_column("Turn", justify="right", width=5)
-            concern_table.add_column("Severity", width=10)
-            concern_table.add_column("Type", width=26)
-            concern_table.add_column("Description")
+        # Concerns list
+        if has_concerns:
+            lines.append("[bold]Concerns[/bold]")
             for c in finding["concerns"]:
-                style = _sev_style.get(c.get("severity", "low"), "white")
-                concern_table.add_row(
-                    str(c.get("turn", "—")),
-                    Text(c.get("severity", "?").upper(), style=style),
-                    c.get("type", "—"),
-                    c.get("description", ""),
-                )
-            console.print(concern_table)
+                sev  = c.get("severity", "low")
+                icon = _sev_icon.get(sev, "•")
+                col  = _sev_style.get(sev, "white")
+                turn_tag = f"[dim]turn {c['turn']}[/dim]  " if c.get("turn") else ""
+                lines.append(f"  {icon} [{col}]{c.get('type')}[/{col}]  {turn_tag}{c.get('description', '')}")
+            lines.append("")
 
-            # Conversation transcript — show all turns, highlight flagged ones
+        # Conversation transcript
+        conversation = finding.get("conversation", [])
+        if conversation:
             flagged_turns = {c.get("turn") for c in finding["concerns"] if c.get("turn")}
-            console.print(f"\n  [dim]Conversation transcript:[/dim]")
-            conversation = finding.get("conversation", [])
+            lines.append("[bold]Conversation[/bold]")
             for i in range(0, len(conversation), 2):
-                turn_num = i // 2 + 1
-                child_msg = conversation[i]["content"] if i < len(conversation) else ""
-                ai_msg = conversation[i + 1]["content"] if i + 1 < len(conversation) else ""
-                flagged = turn_num in flagged_turns
-                prefix = "  [bold red]►[/bold red]" if flagged else "   "
-                console.print(f"{prefix} [cyan]Turn {turn_num}[/cyan]")
-                console.print(f"    [cyan]CHILD:[/cyan] {child_msg}")
-                console.print(f"    [green]AI:[/green]    {ai_msg[:300]}{'…' if len(ai_msg) > 300 else ''}")
+                turn_num  = i // 2 + 1
+                child_msg = conversation[i]["content"]     if i     < len(conversation) else ""
+                ai_msg    = conversation[i+1]["content"]   if i + 1 < len(conversation) else ""
+                flagged   = turn_num in flagged_turns
+
+                if flagged:
+                    lines.append(f"  [bold red]── Turn {turn_num} ── ⚠ flagged[/bold red]")
+                else:
+                    lines.append(f"  [dim]── Turn {turn_num}[/dim]")
+
+                lines.append(f"  [cyan]Child[/cyan]  {child_msg}")
+                ai_display = ai_msg[:400] + ("…" if len(ai_msg) > 400 else "")
+                lines.append(f"  [green]AI[/green]     {ai_display}")
+
                 if flagged:
                     turn_concerns = [c for c in finding["concerns"] if c.get("turn") == turn_num]
                     for c in turn_concerns:
-                        sev_style = _sev_style.get(c.get("severity", "low"), "white")
-                        console.print(f"    [{sev_style}]⚠ {c.get('type')} — {c.get('description')}[/{sev_style}]")
-        else:
-            console.print("[dim]  No concerns flagged.[/dim]")
+                        col = _sev_style.get(c.get("severity", "low"), "white")
+                        lines.append(f"         [{col}]⚠ {c.get('type')} — {c.get('description')}[/{col}]")
+                lines.append("")
+
+        panel_body = "\n".join(lines).rstrip()
+        console.print(Panel(panel_body, title=title, border_style=border, padding=(1, 2)))
         console.print()
 
-    if report["critical_concerns"] == 0 and report["high_concerns"] == 0:
-        console.print("[green]No critical or high-severity concerns found.[/green]")
+    # ── Final verdict ─────────────────────────────────────────────────────────
+    if crit == 0 and high == 0:
+        console.print(Panel("[green]No critical or high-severity concerns found.[/green]",
+                            border_style="green", padding=(0, 2)))
 
 
 async def run_redteam(args) -> None:
