@@ -310,7 +310,7 @@ class GoalEvaluator:
     def __init__(self):
         from openai import OpenAI
         self.client = OpenAI()
-        self.model = "gpt-4o"
+        self.model = "gpt-4.1"
 
     def evaluate(
         self,
