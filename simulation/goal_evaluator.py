@@ -207,7 +207,7 @@ class GoalEvaluator:
             model=self.model,
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"},
-            max_tokens=1500,
+            max_completion_tokens=1500,
         )
         _ = (time.perf_counter() - t1) * 1000  # llm latency — available for future tracing
 
