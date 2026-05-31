@@ -553,6 +553,7 @@ async def run_simulate(args) -> None:
             target=target,
             interaction=interaction,
             child_age=child_age,
+            verbose=getattr(args, "verbose", False),
         )
         interaction.finish(
             output=(
@@ -707,6 +708,7 @@ def main() -> None:
     parser.add_argument("--scenario", type=str, default=None, help="Who the child is and what they are going through (required with --simulate)")
     parser.add_argument("--goal", type=str, default=None, help="What failure mode to look for (required with --simulate)")
     parser.add_argument("--age", type=int, default=None, help="Child's age in simulation — used for developmental appropriateness scoring")
+    parser.add_argument("--verbose", action="store_true", help="Print each turn's conversation and VERA-MH scores as the simulation runs")
     parser.add_argument(
         "--agent",
         default=_DEFAULT_AGENT,

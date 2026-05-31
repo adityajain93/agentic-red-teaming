@@ -308,8 +308,9 @@ class GoalEvaluator:
     """
 
     def __init__(self):
-        from target.modal_client import modal_vllm_client
-        self.client, self.model = modal_vllm_client(role="attacker")
+        from openai import OpenAI
+        self.client = OpenAI()
+        self.model = "gpt-4o"
 
     def evaluate(
         self,
@@ -362,6 +363,7 @@ class GoalEvaluator:
         resp = self.client.chat.completions.create(
             model=self.model,
             messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"},
             max_tokens=1024,
         )
         llm_duration = (time.perf_counter() - t1) * 1000

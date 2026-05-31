@@ -1,8 +1,13 @@
 import asyncio
 import time
 
+from rich.console import Console
+from rich.rule import Rule
+
 from .simulator import SimulatorAgent, SimulationResult
 from .goal_evaluator import GoalEvaluator
+
+_console = Console()
 
 SIMULATION_STRATEGIES = {
     "Gradual Escalation": (
@@ -51,9 +56,10 @@ class SimulationOrchestrator:
         target=None,
         interaction=None,
         child_age: int | None = None,
+        verbose: bool = False,
     ) -> dict:
         tasks = [
-            self._run_strategy(name, desc, scenario, goal, turns, target, interaction, child_age)
+            self._run_strategy(name, desc, scenario, goal, turns, target, interaction, child_age, verbose)
             for name, desc in SIMULATION_STRATEGIES.items()
         ]
         raw = await asyncio.gather(*tasks, return_exceptions=True)
@@ -79,6 +85,7 @@ class SimulationOrchestrator:
         target,
         interaction,
         child_age: int | None = None,
+        verbose: bool = False,
     ) -> SimulationResult:
         simulator = SimulatorAgent(strategy_name, strategy_desc)
         evaluator = GoalEvaluator()
@@ -86,6 +93,9 @@ class SimulationOrchestrator:
         all_tool_calls: list[dict] = []
         all_concerns: list[dict] = []
         goal_reached = False
+
+        if verbose:
+            _console.rule(f"[bold magenta]{strategy_name}[/bold magenta]")
 
         for turn in range(turns):
             # Child sends a message
@@ -122,6 +132,13 @@ class SimulationOrchestrator:
             conversation_history.append({"role": "assistant", "content": result["response"]})
             all_tool_calls.extend(result["tool_calls"])
 
+            if verbose:
+                _console.print(f"\n[bold cyan][{strategy_name}] Turn {turn + 1}[/bold cyan]")
+                _console.print(f"  [cyan]CHILD:[/cyan] {message}")
+                _console.print(f"  [green]AI:[/green]    {result['response']}")
+                if result["tool_calls"]:
+                    _console.print(f"  [dim]Tools: {[tc['tool'] for tc in result['tool_calls']]}[/dim]")
+
             # Evaluate this turn — evaluator handles its own Raindrop spans internally
             eval_result = await asyncio.to_thread(
                 evaluator.evaluate,
@@ -135,11 +152,41 @@ class SimulationOrchestrator:
                 turn + 1,
             )
 
+            if verbose:
+                _sev_colour = {"critical": "bold red", "high": "red", "medium": "yellow", "low": "dim"}
+                vera = eval_result.get("vera_mh", {})
+                _score_colour = {1: "bold red", 2: "red", 3: "yellow", 4: "green", 5: "bold green"}
+                scores_str = "  ".join(
+                    f"[{_score_colour.get(v.get('score', 0), 'white')}]{k.replace('_', ' ').title()}: {v.get('score', '?')}/5[/]"
+                    for k, v in vera.items() if isinstance(v, dict)
+                )
+                _console.print(f"  [dim]VERA-MH → {scores_str}[/dim]")
+                b = eval_result.get("behavioral", {})
+                flags = []
+                if b.get("missed_implicit_crisis"):
+                    flags.append("[red]missed implicit crisis[/red]")
+                if b.get("hallucinated_escalation"):
+                    flags.append("[bold red]HALLUCINATED ESCALATION[/bold red]")
+                if b.get("crisis_resources_mentioned"):
+                    flags.append("[green]crisis resources shared[/green]")
+                if b.get("escalate_tool_called"):
+                    flags.append("[green]escalated ✓[/green]")
+                if flags:
+                    _console.print(f"  [dim]Behavioral → {', '.join(flags)}[/dim]")
+                if eval_result.get("reasoning"):
+                    _console.print(f"  [dim]Reasoning: {eval_result['reasoning'][:200]}[/dim]")
+                if eval_result["concerns"]:
+                    for c in eval_result["concerns"]:
+                        col = _sev_colour.get(c["severity"], "white")
+                        _console.print(f"  [{col}]⚠ {c['type']} ({c['severity']}): {c['description']}[/{col}]")
+
             for concern in eval_result["concerns"]:
                 all_concerns.append({**concern, "turn": turn + 1, "model_response": result["response"]})
 
             if eval_result["goal_reached"]:
                 goal_reached = True
+                if verbose:
+                    _console.print(f"  [bold red]Goal reached — stopping early.[/bold red]")
                 break
 
         escalated = any(tc.get("tool") == "escalate_to_counselor" for tc in all_tool_calls)
