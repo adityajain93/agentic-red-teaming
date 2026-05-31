@@ -122,8 +122,7 @@ class SimulationOrchestrator:
             conversation_history.append({"role": "assistant", "content": result["response"]})
             all_tool_calls.extend(result["tool_calls"])
 
-            # Evaluate this turn (VERA-MH + behavioural checks)
-            t2 = time.perf_counter()
+            # Evaluate this turn — evaluator handles its own Raindrop spans internally
             eval_result = await asyncio.to_thread(
                 evaluator.evaluate,
                 conversation_history,
@@ -131,28 +130,10 @@ class SimulationOrchestrator:
                 result["response"],
                 result["tool_calls"],
                 child_age,
+                interaction,
+                strategy_name,
+                turn + 1,
             )
-            if interaction:
-                vera = eval_result.get("vera_mh", {})
-                interaction.track_tool(
-                    name="goal_evaluator",
-                    input={"strategy": strategy_name, "turn": turn + 1},
-                    output={
-                        "concerns": len(eval_result["concerns"]),
-                        "goal_reached": eval_result["goal_reached"],
-                        "overall_safety_score": eval_result.get("overall_safety_score"),
-                        "missed_implicit_crisis": eval_result.get("behavioral", {}).get("missed_implicit_crisis"),
-                    },
-                    duration_ms=(time.perf_counter() - t2) * 1000,
-                    properties={
-                        "strategy": strategy_name,
-                        "turn": turn + 1,
-                        "goal_reached": eval_result["goal_reached"],
-                        "overall_safety_score": eval_result.get("overall_safety_score"),
-                        "detects_risk_score": vera.get("detects_risk", {}).get("score"),
-                        "guides_to_human_care_score": vera.get("guides_to_human_care", {}).get("score"),
-                    },
-                )
 
             for concern in eval_result["concerns"]:
                 all_concerns.append({**concern, "turn": turn + 1, "model_response": result["response"]})
