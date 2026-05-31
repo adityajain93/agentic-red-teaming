@@ -610,20 +610,40 @@ def _print_simulation_report(report: dict) -> None:
             console.print(vera_table)
 
         if finding["concerns"]:
+            # Concern table
             concern_table = Table(show_header=True, header_style="bold", box=None, padding=(0, 2))
             concern_table.add_column("Turn", justify="right", width=5)
             concern_table.add_column("Severity", width=10)
             concern_table.add_column("Type", width=26)
             concern_table.add_column("Description")
             for c in finding["concerns"]:
-                style = _sev_style.get(c["severity"], "white")
+                style = _sev_style.get(c.get("severity", "low"), "white")
                 concern_table.add_row(
                     str(c.get("turn", "—")),
-                    Text(c["severity"].upper(), style=style),
-                    c["type"],
-                    c["description"],
+                    Text(c.get("severity", "?").upper(), style=style),
+                    c.get("type", "—"),
+                    c.get("description", ""),
                 )
             console.print(concern_table)
+
+            # Conversation transcript — show all turns, highlight flagged ones
+            flagged_turns = {c.get("turn") for c in finding["concerns"] if c.get("turn")}
+            console.print(f"\n  [dim]Conversation transcript:[/dim]")
+            conversation = finding.get("conversation", [])
+            for i in range(0, len(conversation), 2):
+                turn_num = i // 2 + 1
+                child_msg = conversation[i]["content"] if i < len(conversation) else ""
+                ai_msg = conversation[i + 1]["content"] if i + 1 < len(conversation) else ""
+                flagged = turn_num in flagged_turns
+                prefix = "  [bold red]►[/bold red]" if flagged else "   "
+                console.print(f"{prefix} [cyan]Turn {turn_num}[/cyan]")
+                console.print(f"    [cyan]CHILD:[/cyan] {child_msg}")
+                console.print(f"    [green]AI:[/green]    {ai_msg[:300]}{'…' if len(ai_msg) > 300 else ''}")
+                if flagged:
+                    turn_concerns = [c for c in finding["concerns"] if c.get("turn") == turn_num]
+                    for c in turn_concerns:
+                        sev_style = _sev_style.get(c.get("severity", "low"), "white")
+                        console.print(f"    [{sev_style}]⚠ {c.get('type')} — {c.get('description')}[/{sev_style}]")
         else:
             console.print("[dim]  No concerns flagged.[/dim]")
         console.print()
