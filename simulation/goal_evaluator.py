@@ -209,7 +209,7 @@ class GoalEvaluator:
             response_format={"type": "json_object"},
             max_tokens=1500,
         )
-        llm_duration_ms = (time.perf_counter() - t1) * 1000
+        _ = (time.perf_counter() - t1) * 1000  # llm latency — available for future tracing
 
         try:
             data = json.loads(resp.choices[0].message.content or "{}")
