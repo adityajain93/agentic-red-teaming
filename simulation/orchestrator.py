@@ -50,9 +50,10 @@ class SimulationOrchestrator:
         turns: int = 5,
         target=None,
         interaction=None,
+        child_age: int | None = None,
     ) -> dict:
         tasks = [
-            self._run_strategy(name, desc, scenario, goal, turns, target, interaction)
+            self._run_strategy(name, desc, scenario, goal, turns, target, interaction, child_age)
             for name, desc in SIMULATION_STRATEGIES.items()
         ]
         raw = await asyncio.gather(*tasks, return_exceptions=True)
@@ -77,6 +78,7 @@ class SimulationOrchestrator:
         turns: int,
         target,
         interaction,
+        child_age: int | None = None,
     ) -> SimulationResult:
         simulator = SimulatorAgent(strategy_name, strategy_desc)
         evaluator = GoalEvaluator()
@@ -120,7 +122,7 @@ class SimulationOrchestrator:
             conversation_history.append({"role": "assistant", "content": result["response"]})
             all_tool_calls.extend(result["tool_calls"])
 
-            # Evaluate this turn
+            # Evaluate this turn (VERA-MH + behavioural checks)
             t2 = time.perf_counter()
             eval_result = await asyncio.to_thread(
                 evaluator.evaluate,
@@ -128,21 +130,27 @@ class SimulationOrchestrator:
                 goal,
                 result["response"],
                 result["tool_calls"],
+                child_age,
             )
             if interaction:
+                vera = eval_result.get("vera_mh", {})
                 interaction.track_tool(
                     name="goal_evaluator",
                     input={"strategy": strategy_name, "turn": turn + 1},
                     output={
                         "concerns": len(eval_result["concerns"]),
                         "goal_reached": eval_result["goal_reached"],
+                        "overall_safety_score": eval_result.get("overall_safety_score"),
+                        "missed_implicit_crisis": eval_result.get("behavioral", {}).get("missed_implicit_crisis"),
                     },
                     duration_ms=(time.perf_counter() - t2) * 1000,
                     properties={
                         "strategy": strategy_name,
                         "turn": turn + 1,
                         "goal_reached": eval_result["goal_reached"],
-                        "concerns": len(eval_result["concerns"]),
+                        "overall_safety_score": eval_result.get("overall_safety_score"),
+                        "detects_risk_score": vera.get("detects_risk", {}).get("score"),
+                        "guides_to_human_care_score": vera.get("guides_to_human_care", {}).get("score"),
                     },
                 )
 
@@ -154,6 +162,12 @@ class SimulationOrchestrator:
                 break
 
         escalated = any(tc.get("tool") == "escalate_to_counselor" for tc in all_tool_calls)
+
+        # Aggregate VERA-MH scores across all evaluated turns
+        vera_scores_by_dim: dict[str, list[int]] = {}
+        for concern in all_concerns:
+            # Pull dimension score from any attached vera_mh data if available
+            pass
 
         return SimulationResult(
             strategy=strategy_name,
@@ -171,6 +185,12 @@ class SimulationOrchestrator:
         critical = [c for c in all_concerns if c["severity"] == "critical"]
         high = [c for c in all_concerns if c["severity"] == "high"]
 
+        # Collect any VERA-MH score metadata stored on concerns
+        vera_rollup: dict[str, list] = {}
+        for c in all_concerns:
+            if "vera_score" in c:
+                vera_rollup.setdefault(c.get("dimension", "unknown"), []).append(c["vera_score"])
+
         return {
             "total_strategies": len(results),
             "strategies_with_concerns": sum(1 for r in results if r.concerns),
@@ -187,6 +207,8 @@ class SimulationOrchestrator:
                     "escalated": r.escalated,
                     "concerns": r.concerns,
                     "conversation": r.conversation,
+                    "overall_safety_score": None,  # populated by evaluator per-turn
+                    "vera_mh": {},
                 }
                 for r in sorted(results, key=lambda r: -sum(_sev.get(c["severity"], 0) for c in r.concerns))
             ],

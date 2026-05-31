@@ -522,11 +522,16 @@ async def run_simulate(args) -> None:
     target = AGENTS[args.agent]["factory"]()
     orchestrator = SimulationOrchestrator()
 
+    child_age = getattr(args, "age", None)
+
     console.rule("[bold magenta]Safety Simulation[/bold magenta]")
     console.print(f"Agent:      [bold]{args.agent}[/bold]")
     console.print(f"Scenario:   {args.scenario}")
     console.print(f"Goal:       {args.goal}")
+    if child_age:
+        console.print(f"Child age:  {child_age}")
     console.print(f"Strategies: {len(SIMULATION_STRATEGIES)} | Turns: {args.turns}\n")
+    console.print("[dim]Evaluator: VERA-MH (5 dimensions, 1-5 scale) + behavioural checks[/dim]\n")
 
     interaction = raindrop.begin(
         user_id="system",
@@ -547,6 +552,7 @@ async def run_simulate(args) -> None:
             turns=args.turns,
             target=target,
             interaction=interaction,
+            child_age=child_age,
         )
         interaction.finish(
             output=(
@@ -563,36 +569,62 @@ async def run_simulate(args) -> None:
 
 def _print_simulation_report(report: dict) -> None:
     _sev_style = {"critical": "bold red", "high": "red", "medium": "yellow", "low": "dim"}
+    _score_style = {1: "bold red", 2: "red", 3: "yellow", 4: "green", 5: "bold green"}
+    _vera_labels = {
+        "detects_risk": "Detects Risk",
+        "confirms_risk": "Confirms Risk",
+        "guides_to_human_care": "Guides to Human Care",
+        "supportive_conversation": "Supportive Conversation",
+        "follows_ai_boundaries": "Follows AI Boundaries",
+    }
 
     console.rule("[bold magenta]Simulation Report[/bold magenta]")
-    console.print(f"Strategies run:          {report['total_strategies']}")
-    console.print(f"Strategies with concerns:{report['strategies_with_concerns']}")
-    console.print(f"Model escalated in:      {report['strategies_escalated']}/{report['total_strategies']} strategies")
-    console.print(f"Total concerns:          {report['total_concerns']} "
+    console.print(f"Strategies run:           {report['total_strategies']}")
+    console.print(f"Strategies with concerns: {report['strategies_with_concerns']}")
+    console.print(f"Model escalated in:       {report['strategies_escalated']}/{report['total_strategies']} strategies")
+    console.print(f"Total concerns:           {report['total_concerns']} "
                   f"([red]{report['critical_concerns']} critical[/red], "
                   f"[yellow]{report['high_concerns']} high[/yellow])\n")
 
     for finding in report["findings"]:
-        if not finding["concerns"]:
-            continue
-
         escalated_str = "[green]✓ escalated[/green]" if finding["escalated"] else "[red]✗ no escalation[/red]"
-        console.print(f"[bold]{finding['strategy']}[/bold] — {finding['turns']} turns — {escalated_str}")
+        safety_score = finding.get("overall_safety_score")
+        score_str = f" | Safety score: {safety_score}/5" if safety_score else ""
+        console.print(f"[bold]{finding['strategy']}[/bold] — {finding['turns']} turns — {escalated_str}{score_str}")
 
-        table = Table(show_header=True, header_style="bold", box=None, padding=(0, 2))
-        table.add_column("Turn", justify="right", width=5)
-        table.add_column("Severity", width=10)
-        table.add_column("Type", width=22)
-        table.add_column("Description")
-        for c in finding["concerns"]:
-            style = _sev_style.get(c["severity"], "white")
-            table.add_row(
-                str(c["turn"]),
-                Text(c["severity"].upper(), style=style),
-                c["type"],
-                c["description"],
-            )
-        console.print(table)
+        # VERA-MH scores table
+        vera = finding.get("vera_mh", {})
+        if vera:
+            vera_table = Table(show_header=False, box=None, padding=(0, 2))
+            vera_table.add_column("Dimension", width=26)
+            vera_table.add_column("Score", width=8)
+            vera_table.add_column("Reasoning")
+            for dim, label in _vera_labels.items():
+                dim_data = vera.get(dim, {})
+                score = dim_data.get("score")
+                reasoning = dim_data.get("reasoning", "")
+                if isinstance(score, int):
+                    style = _score_style.get(score, "white")
+                    vera_table.add_row(f"[dim]{label}[/dim]", Text(f"{score}/5", style=style), f"[dim]{reasoning}[/dim]")
+            console.print(vera_table)
+
+        if finding["concerns"]:
+            concern_table = Table(show_header=True, header_style="bold", box=None, padding=(0, 2))
+            concern_table.add_column("Turn", justify="right", width=5)
+            concern_table.add_column("Severity", width=10)
+            concern_table.add_column("Type", width=26)
+            concern_table.add_column("Description")
+            for c in finding["concerns"]:
+                style = _sev_style.get(c["severity"], "white")
+                concern_table.add_row(
+                    str(c.get("turn", "—")),
+                    Text(c["severity"].upper(), style=style),
+                    c["type"],
+                    c["description"],
+                )
+            console.print(concern_table)
+        else:
+            console.print("[dim]  No concerns flagged.[/dim]")
         console.print()
 
     if report["critical_concerns"] == 0 and report["high_concerns"] == 0:
@@ -674,6 +706,7 @@ def main() -> None:
     parser.add_argument("--simulate", action="store_true", help="Run safety simulation — realistic child conversations to surface harmful model behaviour")
     parser.add_argument("--scenario", type=str, default=None, help="Who the child is and what they are going through (required with --simulate)")
     parser.add_argument("--goal", type=str, default=None, help="What failure mode to look for (required with --simulate)")
+    parser.add_argument("--age", type=int, default=None, help="Child's age in simulation — used for developmental appropriateness scoring")
     parser.add_argument(
         "--agent",
         default=_DEFAULT_AGENT,
