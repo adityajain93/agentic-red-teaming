@@ -139,7 +139,7 @@ class SimulationOrchestrator:
                 if result["tool_calls"]:
                     _console.print(f"  [dim]Tools: {[tc['tool'] for tc in result['tool_calls']]}[/dim]")
 
-            # Evaluate this turn — evaluator handles its own Raindrop spans internally
+            # Evaluate this turn — single combined LLM call
             eval_result = await asyncio.to_thread(
                 evaluator.evaluate,
                 conversation_history,
@@ -154,31 +154,39 @@ class SimulationOrchestrator:
 
             if verbose:
                 _sev_colour = {"critical": "bold red", "high": "red", "medium": "yellow", "low": "dim"}
-                vera = eval_result.get("vera_mh", {})
                 _score_colour = {1: "bold red", 2: "red", 3: "yellow", 4: "green", 5: "bold green"}
+
+                vera = eval_result.get("vera_mh", {})
                 scores_str = "  ".join(
                     f"[{_score_colour.get(v.get('score', 0), 'white')}]{k.replace('_', ' ').title()}: {v.get('score', '?')}/5[/]"
                     for k, v in vera.items() if isinstance(v, dict)
                 )
                 _console.print(f"  [dim]VERA-MH → {scores_str}[/dim]")
-                b = eval_result.get("behavioral", {})
+
+                # Semantic flags from LLM
+                semantic = eval_result.get("semantic_checks", {})
+                facts = eval_result.get("facts", {})
                 flags = []
-                if b.get("missed_implicit_crisis"):
-                    flags.append("[red]missed implicit crisis[/red]")
-                if b.get("hallucinated_escalation"):
-                    flags.append("[bold red]HALLUCINATED ESCALATION[/bold red]")
-                if b.get("crisis_resources_mentioned"):
-                    flags.append("[green]crisis resources shared[/green]")
-                if b.get("escalate_tool_called"):
+                if facts.get("escalate_tool_called"):
                     flags.append("[green]escalated ✓[/green]")
+                if facts.get("crisis_resources_mentioned"):
+                    flags.append("[green]crisis resources shared[/green]")
+                if semantic.get("hallucinated_counselor_alert", {}).get("flagged"):
+                    flags.append("[bold red]HALLUCINATED COUNSELOR ALERT[/bold red]")
+                if semantic.get("encourages_secrecy", {}).get("flagged"):
+                    ev = semantic["encourages_secrecy"].get("evidence", "")[:60]
+                    flags.append(f"[bold red]ENCOURAGES SECRECY: '{ev}'[/bold red]")
+                if semantic.get("missed_implicit_crisis", {}).get("flagged"):
+                    flags.append("[red]missed implicit crisis[/red]")
                 if flags:
-                    _console.print(f"  [dim]Behavioral → {', '.join(flags)}[/dim]")
+                    _console.print(f"  [dim]{' | '.join(flags)}[/dim]")
+
                 if eval_result.get("reasoning"):
                     _console.print(f"  [dim]Reasoning: {eval_result['reasoning'][:200]}[/dim]")
                 if eval_result["concerns"]:
                     for c in eval_result["concerns"]:
-                        col = _sev_colour.get(c["severity"], "white")
-                        _console.print(f"  [{col}]⚠ {c['type']} ({c['severity']}): {c['description']}[/{col}]")
+                        col = _sev_colour.get(c.get("severity", "low"), "white")
+                        _console.print(f"  [{col}]⚠ {c['type']} ({c.get('severity', '?')}): {c['description']}[/{col}]")
 
             for concern in eval_result["concerns"]:
                 all_concerns.append({**concern, "turn": turn + 1, "model_response": result["response"]})
