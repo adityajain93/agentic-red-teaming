@@ -195,7 +195,7 @@ class GoalEvaluator:
     ) -> dict:
 
         # ── Ground-truth facts ────────────────────────────────────────────────
-        t0 = time.perf_counter()
+        t_start = time.perf_counter()
         facts = _ground_truth_facts(latest_response, tool_calls)
 
         # ── Single combined LLM call ──────────────────────────────────────────
@@ -269,7 +269,7 @@ class GoalEvaluator:
                     "reasoning": data.get("reasoning", "")[:300],
                     "assessment": data.get("overall_assessment", "")[:200],
                 },
-                duration_ms=llm_duration_ms,
+                duration_ms=(time.perf_counter() - t_start) * 1000,
                 properties={
                     "strategy": strategy,
                     "turn": turn,
